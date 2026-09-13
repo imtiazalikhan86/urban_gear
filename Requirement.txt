@@ -1,0 +1,25 @@
+1Admin Panel for Urban Gear Products
+2.the idea is simple - it should show all the urban gear products for the resellers to order in bulk.
+3.with notifications for new products...(any new product introduced should show as a notification)
+4.products - urbangear.in
+
+we can refer to the website for the product details and images. The admin panel should have the following features:
+- Login for resellers
+- Dashboard showing all products with images, descriptions, and prices
+- Option to filter products by category, price range, and availability
+- Notification system for new product launches
+- Order management system for resellers to place bulk orders
+- Export order details in CSV or PDF format
+- User management for resellers (add, edit, delete users)
+- Analytics dashboard showing sales trends and popular products
+
+Totalgiftsolutions.com
+
+use template for ui development later
+
+# tech stach
+
+Nodejs,postgress db,PWA for frontend follow the architure layer controller,service etc 
+make sure we follow the coding pattners and standards
+
+first lets focus on backend API later we can go with the frontend integration
