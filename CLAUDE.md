@@ -2,7 +2,7 @@
 
 ## Project Purpose
 
-Urban Gear is a reseller platform for browsing products, managing reseller accounts, applying reseller margins, previewing customer pricing, and placing future bulk orders. The current repository contains the backend API and a separate reference frontend template.
+Urban Gear is a reseller platform for browsing products, managing reseller accounts, applying reseller margins, previewing customer pricing, and placing bulk orders. This repository is the backend API only. The React PWA client lives in its own repository (`urban_gear_frontend`, checked out alongside this one as `../urbangear-frontend`).
 
 See [README.md](README.md) for setup and [Requirement.txt](Requirement.txt) for the broader product requirements.
 
@@ -33,9 +33,6 @@ routes -> controllers -> services -> repositories
 - `prisma/schema.prisma`: database schema
 - `prisma/migrations`: committed database migrations
 - `tests`: Vitest and Supertest API tests
-- `frontend/src/components/ui`: reusable frontend UI primitives
-- `frontend/src/services`: Axios client and domain API services
-- `frontend/src/store`: Redux Toolkit state
 
 Keep business rules in services, database access in repositories, and request parsing in schemas/controllers. Prefer small domain types when generated Prisma types create editor/tooling issues.
 
@@ -67,7 +64,7 @@ For production migrations, use Prisma's deployment workflow (`prisma migrate dep
 - `POST /api/v1/auth/refresh` exchanges a refresh token for a new access token and rotates the refresh token; `POST /api/v1/auth/logout` revokes one. Login returns both tokens.
 - Refresh tokens are 32 random bytes stored as a SHA-256 digest in `refresh_tokens`, valid for `REFRESH_TOKEN_TTL_DAYS` (default 30), single use. Presenting an already revoked token is treated as theft and revokes every refresh token for that user.
 - A password change or reset revokes all refresh tokens for that user. Access tokens stay valid until `JWT_EXPIRES_IN` elapses, because they are stateless.
-- The frontend refreshes transparently: `services/http.ts` retries a 401 once behind a single-flight guard so parallel requests share one rotation, and emits `urbangear:unauthorized` when refresh fails so `App` can end the session.
+- Clients are expected to refresh transparently: retry a 401 once, behind a single-flight guard so parallel requests share one rotation.
 
 ### Forgot Password
 
@@ -76,7 +73,7 @@ For production migrations, use Prisma's deployment workflow (`prisma migrate dep
 - Tokens are 32 random bytes; only their SHA-256 digest is stored in `password_reset_tokens`. They expire after `PASSWORD_RESET_TTL_MINUTES` (default 30) and are single use: a successful reset burns every outstanding token for that user in the same transaction as the password write.
 - Both endpoints are rate limited to 5 requests per 15 minutes.
 - Mail goes through `src/lib/mailer.ts`. Without `SMTP_HOST` the message is written to the log instead of sent, which is how local development follows a reset link; production start-up fails without `SMTP_HOST` so live reset emails cannot be silently swallowed.
-- The emailed link is `APP_BASE_URL/reset-password?token=...`. The frontend has no router, so it reads the token from the query string on any path; static hosting needs an SPA fallback for that URL.
+- The emailed link is `APP_BASE_URL/reset-password?token=...`, which must resolve to the client's reset screen.
 - JWT verification requires the configured secret, issuer, audience, and HS256 algorithm.
 - Protected requests reload the user from PostgreSQL and reject suspended users.
 - `ADMIN` users manage users and product mutations.
@@ -110,7 +107,7 @@ Creating a product fans out an in-app notification to every active `RESELLER`.
 - `GET /api/v1/notifications/stream` is a Server-Sent Events stream: a `ready` event carrying the unread count, a `notification` event per new alert, and heartbeat comments every 25 seconds.
 - The fan-out runs after a successful product insert in `createProduct`, and is skipped when no active reseller exists. It persists rows with `createManyAndReturn` and then pushes each row to that reseller's open streams.
 - Delivery uses the in-process emitter in `notification.events.ts`, so real-time push only works while one backend instance is running. Replace it with Postgres `LISTEN/NOTIFY` or Redis pub/sub before scaling horizontally; the REST endpoints keep working either way.
-- The frontend subscribes with `fetch` rather than `EventSource` so the bearer token stays in a header, and reconnects with exponential backoff.
+- Clients should subscribe with `fetch` rather than `EventSource`, so the bearer token stays in a header rather than the query string.
 - Notification payloads expose only the product `id`, `name`, and `slug`; never the cost price.
 
 ## Environment And Security
@@ -138,34 +135,15 @@ npm run build
 
 Tests mock repositories, so passing tests do not replace PostgreSQL migration/integration testing. When changing the schema, run `npm run db:generate`, create a named migration, and verify the migration against a real development database.
 
+## Related Repository
+
+The client lives in `urban_gear_frontend`. Changing a request or response shape here means changing `src/services` there; the API contract is the seam between the two.
+
 ## Important Pitfalls
 
 - OpenAPI operations are generated from `@openapi` annotations next to route definitions; update the annotation whenever a public endpoint changes.
 - Product reads require an active `ADMIN` or `RESELLER`; the returned `price` is the reseller cost price and must not be treated as customer-facing pricing.
 - `search` on the product list matches name, description, SKU, and category, case-insensitively. `ProductWhereInput` in `product.repository.ts` is hand-written, so widening the query means widening that type too.
 - Product deletion is currently a hard delete; user deletion is a soft suspension.
-- The frontend reference template under `WB095FRJM-v1-0-0/` is not integrated with the backend.
 - Do not use `npx prisma` without pinning the project-local version; use `node_modules/.bin/prisma` or the npm scripts.
 - Do not use development migration commands in production.
-
-## Frontend Architecture
-
-The maintainable frontend lives under `frontend/` and is a React/Vite PWA built on the purchased template's own stylesheets, copied into `frontend/src/theme/` from `WB095FRJM-v1-0-0/template/`:
-
-- `theme/css/bootstrap.min.css` (the template's Bootstrap 5.3 build), `theme/css/materialdesignicons.min.css` with `theme/fonts/`, and `theme/css/template.css` (the template's own `css/style.css`). `bootstrap-icons` comes from npm for the few `bi` classes the template uses. They are imported in that order in `main.tsx`, before the small `styles.css` that holds only app-specific additions.
-- Build screens from template classes, not hand-written CSS: page shell `osahan-page` / `osahan-page-header` / `osahan-page-body`, cards `bg-white rounded-4 shadow-sm`, product cards `osahan-card-2`, buttons `btn btn-primary rounded-4 btn-lg`, inputs `input-group bg-white rounded-4 shadow p-1` with an `mdi` icon, filters `nav nav-pills rounded-pill` + `btn btn-outline-primary`, round icon buttons `icon-sm shadow-sm`, small print `little-text`.
-- Icons are Material Design Icons (`<i className="mdi mdi-..." />`). Do not add an icon component library.
-- `components/ui` keeps only what the template does not provide directly: `Button`, `Field`, and `Toast`. Cards and badges use template markup inline.
-- The template is phone-first, so `.osahan-page` is capped at 560px and centred on wide screens, with a fixed bottom navigation and an off-canvas drawer.
-
-- Routing uses `react-router-dom`. `src/App.tsx` declares the routes and the session bootstrap; `src/layouts/AppLayout.tsx` holds the chrome (sidebar, drawer, header, bottom navigation, toast) and renders an `<Outlet />`.
-- The search field lives once, in the layout header: typing navigates to `/search?q=` after a 300ms debounce, and `SearchPage` renders results for that param. Do not add a second search input, and do not sync the URL back into the field while it has focus.
-- Navigation is role-aware in `AppLayout`: each nav entry declares `roles` and `bottomNavFor`. Resellers get Cart and Alerts; admins get Users and Orders in the bottom bar instead. Admins never see cart controls, the header bell, the margin panel, or the notification stream, and `RequireRole` in `App.tsx` redirects a wrong-role URL to `/`.
-- Screens live in `src/pages`: `HomePage` (catalog and the admin product form), `SearchPage`, `CartPage` (quote preview and order placement), `AlertsPage`, `ProfilePage` (margin, password, orders, sign out), plus the signed-out `LoginPage` and `ResetPasswordPage`.
-- `/` `/search` `/products/:id` `/profile` `/orders` require a token; `/cart` and `/alerts` are reseller-only and `/users` is admin-only; `/login` and `/reset-password` are public. Tapping a notification marks it read and opens `/products/:id` for the product it announced; a deleted product returns 404 and the page shows a 'no longer in the catalog' state. Static hosting needs an SPA fallback for these paths.
-- Use Redux Toolkit for cross-screen state such as authentication and session data. Current slices: `auth`, `cart` (lines plus the last quote preview), `notifications`, and `ui` (the toast). Anything two screens share belongs in a slice, not in a page.
-- Use the shared Axios client in `frontend/src/services/http.ts` for common `get`, `post`, `put`, `patch`, and `delete` calls.
-- Keep domain API calls in `frontend/src/services`, not inside components.
-- Keep reusable presentation primitives in `frontend/src/components/ui`.
-- Use RTK Query later only if server-cache complexity grows; the current Axios service layer is intentionally explicit and matches the backend contracts.
-- Keep customer pricing derived through quote preview; never display reseller cost as a customer price.
