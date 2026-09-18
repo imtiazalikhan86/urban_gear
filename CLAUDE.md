@@ -62,6 +62,21 @@ For production migrations, use Prisma's deployment workflow (`prisma migrate dep
 
 - Login: `POST /api/v1/auth/login`
 - Current user: `GET /api/v1/auth/me`
+- Self-service password change: `PATCH /api/v1/auth/me/password` verifies the current password with bcrypt, requires a different new password of at least 12 characters, and returns 204.
+- Administrator reset: `POST /api/v1/users/{id}/reset-password` sets a password without knowing the old one.
+- `POST /api/v1/auth/refresh` exchanges a refresh token for a new access token and rotates the refresh token; `POST /api/v1/auth/logout` revokes one. Login returns both tokens.
+- Refresh tokens are 32 random bytes stored as a SHA-256 digest in `refresh_tokens`, valid for `REFRESH_TOKEN_TTL_DAYS` (default 30), single use. Presenting an already revoked token is treated as theft and revokes every refresh token for that user.
+- A password change or reset revokes all refresh tokens for that user. Access tokens stay valid until `JWT_EXPIRES_IN` elapses, because they are stateless.
+- The frontend refreshes transparently: `services/http.ts` retries a 401 once behind a single-flight guard so parallel requests share one rotation, and emits `urbangear:unauthorized` when refresh fails so `App` can end the session.
+
+### Forgot Password
+
+- `POST /api/v1/auth/password/forgot` always answers 202, whether or not the email matches an account, so it cannot be used to enumerate registered addresses. Suspended users receive nothing.
+- `POST /api/v1/auth/password/reset` exchanges the emailed token for a new password of at least 12 characters.
+- Tokens are 32 random bytes; only their SHA-256 digest is stored in `password_reset_tokens`. They expire after `PASSWORD_RESET_TTL_MINUTES` (default 30) and are single use: a successful reset burns every outstanding token for that user in the same transaction as the password write.
+- Both endpoints are rate limited to 5 requests per 15 minutes.
+- Mail goes through `src/lib/mailer.ts`. Without `SMTP_HOST` the message is written to the log instead of sent, which is how local development follows a reset link; production start-up fails without `SMTP_HOST` so live reset emails cannot be silently swallowed.
+- The emailed link is `APP_BASE_URL/reset-password?token=...`. The frontend has no router, so it reads the token from the query string on any path; static hosting needs an SPA fallback for that URL.
 - JWT verification requires the configured secret, issuer, audience, and HS256 algorithm.
 - Protected requests reload the user from PostgreSQL and reject suspended users.
 - `ADMIN` users manage users and product mutations.
@@ -127,6 +142,7 @@ Tests mock repositories, so passing tests do not replace PostgreSQL migration/in
 
 - OpenAPI operations are generated from `@openapi` annotations next to route definitions; update the annotation whenever a public endpoint changes.
 - Product reads require an active `ADMIN` or `RESELLER`; the returned `price` is the reseller cost price and must not be treated as customer-facing pricing.
+- `search` on the product list matches name, description, SKU, and category, case-insensitively. `ProductWhereInput` in `product.repository.ts` is hand-written, so widening the query means widening that type too.
 - Product deletion is currently a hard delete; user deletion is a soft suspension.
 - The frontend reference template under `WB095FRJM-v1-0-0/` is not integrated with the backend.
 - Do not use `npx prisma` without pinning the project-local version; use `node_modules/.bin/prisma` or the npm scripts.
@@ -134,9 +150,20 @@ Tests mock repositories, so passing tests do not replace PostgreSQL migration/in
 
 ## Frontend Architecture
 
-The maintainable frontend lives under `frontend/` and is a React/Vite PWA that reuses the purchased template's visual language and logo assets from `WB095FRJM-v1-0-0/template/`: pink primary theme, Instrument Sans/Sora typography, rounded white cards, and mobile bottom navigation.
+The maintainable frontend lives under `frontend/` and is a React/Vite PWA built on the purchased template's own stylesheets, copied into `frontend/src/theme/` from `WB095FRJM-v1-0-0/template/`:
 
-- Use Redux Toolkit for cross-screen state such as authentication and session data.
+- `theme/css/bootstrap.min.css` (the template's Bootstrap 5.3 build), `theme/css/materialdesignicons.min.css` with `theme/fonts/`, and `theme/css/template.css` (the template's own `css/style.css`). `bootstrap-icons` comes from npm for the few `bi` classes the template uses. They are imported in that order in `main.tsx`, before the small `styles.css` that holds only app-specific additions.
+- Build screens from template classes, not hand-written CSS: page shell `osahan-page` / `osahan-page-header` / `osahan-page-body`, cards `bg-white rounded-4 shadow-sm`, product cards `osahan-card-2`, buttons `btn btn-primary rounded-4 btn-lg`, inputs `input-group bg-white rounded-4 shadow p-1` with an `mdi` icon, filters `nav nav-pills rounded-pill` + `btn btn-outline-primary`, round icon buttons `icon-sm shadow-sm`, small print `little-text`.
+- Icons are Material Design Icons (`<i className="mdi mdi-..." />`). Do not add an icon component library.
+- `components/ui` keeps only what the template does not provide directly: `Button`, `Field`, and `Toast`. Cards and badges use template markup inline.
+- The template is phone-first, so `.osahan-page` is capped at 560px and centred on wide screens, with a fixed bottom navigation and an off-canvas drawer.
+
+- Routing uses `react-router-dom`. `src/App.tsx` declares the routes and the session bootstrap; `src/layouts/AppLayout.tsx` holds the chrome (sidebar, drawer, header, bottom navigation, toast) and renders an `<Outlet />`.
+- The search field lives once, in the layout header: typing navigates to `/search?q=` after a 300ms debounce, and `SearchPage` renders results for that param. Do not add a second search input, and do not sync the URL back into the field while it has focus.
+- Navigation is role-aware in `AppLayout`: each nav entry declares `roles` and `bottomNavFor`. Resellers get Cart and Alerts; admins get Users and Orders in the bottom bar instead. Admins never see cart controls, the header bell, the margin panel, or the notification stream, and `RequireRole` in `App.tsx` redirects a wrong-role URL to `/`.
+- Screens live in `src/pages`: `HomePage` (catalog and the admin product form), `SearchPage`, `CartPage` (quote preview and order placement), `AlertsPage`, `ProfilePage` (margin, password, orders, sign out), plus the signed-out `LoginPage` and `ResetPasswordPage`.
+- `/` `/search` `/products/:id` `/profile` `/orders` require a token; `/cart` and `/alerts` are reseller-only and `/users` is admin-only; `/login` and `/reset-password` are public. Tapping a notification marks it read and opens `/products/:id` for the product it announced; a deleted product returns 404 and the page shows a 'no longer in the catalog' state. Static hosting needs an SPA fallback for these paths.
+- Use Redux Toolkit for cross-screen state such as authentication and session data. Current slices: `auth`, `cart` (lines plus the last quote preview), `notifications`, and `ui` (the toast). Anything two screens share belongs in a slice, not in a page.
 - Use the shared Axios client in `frontend/src/services/http.ts` for common `get`, `post`, `put`, `patch`, and `delete` calls.
 - Keep domain API calls in `frontend/src/services`, not inside components.
 - Keep reusable presentation primitives in `frontend/src/components/ui`.

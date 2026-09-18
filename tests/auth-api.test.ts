@@ -20,6 +20,10 @@ const reseller = { ...admin, id: '22222222-2222-4222-8222-222222222222', email: 
 vi.mock('../src/modules/auth/auth.repository.js', () => ({
   findUserByEmail: vi.fn((email: string) => Promise.resolve(email === admin.email ? admin : email === reseller.email ? reseller : null)),
   findUserById: vi.fn((id: string) => Promise.resolve(id === admin.id ? admin : id === reseller.id ? reseller : null)),
+  updateUserPassword: vi.fn().mockResolvedValue(admin),
+  updateUserMargin: vi.fn().mockResolvedValue({ ...admin, marginPercent: 0 }),
+  createRefreshToken: vi.fn().mockResolvedValue({ id: 'refresh-id' }),
+  revokeUserRefreshTokens: vi.fn().mockResolvedValue({ count: 0 }),
 }));
 
 vi.mock('../src/modules/products/product.repository.js', () => ({
@@ -70,5 +74,82 @@ describe('authentication and authorization', () => {
     const response = await request(app).get('/api/v1/auth/me').set('Authorization', `Bearer ${loginResponse.body.data.accessToken}`);
 
     expect(response.status).toBe(401);
+  });
+});
+
+describe('password change', () => {
+  async function signIn(email: string) {
+    const response = await request(app).post('/api/v1/auth/login').send({ email, password: 'admin-password' });
+    return response.body.data.accessToken as string;
+  }
+
+  it('stores a new hash when the current password is correct', async () => {
+    const repository = await import('../src/modules/auth/auth.repository.js');
+    vi.mocked(repository.updateUserPassword).mockClear();
+    const token = await signIn(admin.email);
+
+    const response = await request(app)
+      .patch('/api/v1/auth/me/password')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ currentPassword: 'admin-password', newPassword: 'a-much-longer-password' });
+
+    expect(response.status).toBe(204);
+    const call = vi.mocked(repository.updateUserPassword).mock.calls.at(-1);
+    expect(call?.[0]).toBe(admin.id);
+    expect(call?.[1]).not.toContain('a-much-longer-password');
+    expect(await bcrypt.compare('a-much-longer-password', call![1])).toBe(true);
+  });
+
+  it('rejects an incorrect current password without touching the stored hash', async () => {
+    const repository = await import('../src/modules/auth/auth.repository.js');
+    vi.mocked(repository.updateUserPassword).mockClear();
+    const token = await signIn(admin.email);
+
+    const response = await request(app)
+      .patch('/api/v1/auth/me/password')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ currentPassword: 'not-the-current-password', newPassword: 'a-much-longer-password' });
+
+    expect(response.status).toBe(401);
+    expect(response.body.error.message).toBe('Current password is incorrect');
+    expect(repository.updateUserPassword).not.toHaveBeenCalled();
+  });
+
+  it('rejects a new password below the twelve character policy', async () => {
+    const token = await signIn(admin.email);
+
+    const response = await request(app)
+      .patch('/api/v1/auth/me/password')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ currentPassword: 'admin-password', newPassword: 'seller123' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('rejects reusing the current password', async () => {
+    const token = await signIn(admin.email);
+
+    const response = await request(app)
+      .patch('/api/v1/auth/me/password')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ currentPassword: 'a-much-longer-password', newPassword: 'a-much-longer-password' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.details[0].message).toBe('The new password must be different from the current password');
+  });
+
+  it('requires authentication', async () => {
+    const response = await request(app)
+      .patch('/api/v1/auth/me/password')
+      .send({ currentPassword: 'admin-password', newPassword: 'a-much-longer-password' });
+
+    expect(response.status).toBe(401);
+  });
+
+  it('documents the endpoint', async () => {
+    const specification = await request(app).get('/api/openapi.json');
+
+    expect(specification.body.paths['/api/v1/auth/me/password'].patch.security).toEqual([{ bearerAuth: [] }]);
   });
 });

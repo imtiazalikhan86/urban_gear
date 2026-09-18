@@ -1,4 +1,4 @@
-import { api, http } from './http';
+import { api, http, tokenStorage } from './http';
 
 export interface NotificationItem {
   id: string;
@@ -69,13 +69,14 @@ export function streamNotifications(handlers: StreamHandlers): () => void {
   async function connect() {
     while (!stopped) {
       try {
-        const token = localStorage.getItem('urbangear.accessToken');
+        const token = tokenStorage.access();
         if (!token) return;
         const response = await fetch(`${http.defaults.baseURL ?? ''}/notifications/stream`, {
           headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
           signal: controller.signal,
         });
-        if (response.status === 401) return;
+        // Fall through to the backoff so the retry picks up a refreshed token.
+        if (response.status === 401) throw new Error('Notification stream unauthorized');
         if (!response.ok || !response.body) throw new Error(`Notification stream failed with ${response.status}`);
         retryDelay = 1000;
         await readFrames(response.body, handlers);

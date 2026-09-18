@@ -20,6 +20,8 @@ const reseller = { ...admin, id: '22222222-2222-4222-8222-222222222222', email: 
 vi.mock('../src/modules/auth/auth.repository.js', () => ({
   findUserByEmail: vi.fn((email: string) => Promise.resolve(email === admin.email ? admin : email === reseller.email ? reseller : null)),
   findUserById: vi.fn((id: string) => Promise.resolve(id === admin.id ? admin : id === reseller.id ? reseller : null)),
+  createRefreshToken: vi.fn().mockResolvedValue({ id: 'refresh-id' }),
+  revokeUserRefreshTokens: vi.fn().mockResolvedValue({ count: 0 }),
 }));
 
 vi.mock('../src/modules/users/user.repository.js', () => ({

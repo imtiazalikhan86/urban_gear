@@ -35,6 +35,8 @@ model User {
   updatedAt    DateTime   @updatedAt
   orders       Order[]
   notifications Notification[]
+  passwordResetTokens PasswordResetToken[]
+  refreshTokens RefreshToken[]
 
   @@map("users")
 }
@@ -109,4 +111,30 @@ model Notification {
   @@index([userId, readAt, createdAt])
   @@index([productId])
   @@map("notifications")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+  @@map("password_reset_tokens")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@map("refresh_tokens")
 }

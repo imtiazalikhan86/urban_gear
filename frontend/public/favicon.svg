@@ -1,1 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#173f5f"/><path d="M17 21h30v7H25v7h17v7H25v8h22v7H17z" fill="#f6c85f"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Urban Gear">
+  <rect width="64" height="64" rx="15" fill="#ff2c86"/>
+  <path d="M24 25v-4a8 8 0 0 1 16 0v4" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round"/>
+  <path d="M17.5 25h29l-2.6 21.2a4.2 4.2 0 0 1-4.2 3.8H24.3a4.2 4.2 0 0 1-4.2-3.8z" fill="none" stroke="#fff" stroke-width="3.6" stroke-linejoin="round"/>
+</svg>

@@ -8,6 +8,7 @@ type ProductWhereInput = {
     name?: { contains: string; mode?: 'default' | 'insensitive' };
     description?: { contains: string; mode?: 'default' | 'insensitive' };
     sku?: { contains: string; mode?: 'default' | 'insensitive' };
+    category?: { contains: string; mode?: 'default' | 'insensitive' };
   }>;
 };
 
@@ -42,7 +43,7 @@ export async function findProducts(filter: ProductListFilter) {
     ...(filter.minPrice !== undefined || filter.maxPrice !== undefined
       ? { price: { ...(filter.minPrice !== undefined ? { gte: filter.minPrice } : {}), ...(filter.maxPrice !== undefined ? { lte: filter.maxPrice } : {}) } }
       : {}),
-    ...(filter.search ? { OR: [{ name: { contains: filter.search, mode: 'insensitive' } }, { description: { contains: filter.search, mode: 'insensitive' } }, { sku: { contains: filter.search, mode: 'insensitive' } }] } : {}),
+    ...(filter.search ? { OR: [{ name: { contains: filter.search, mode: 'insensitive' } }, { description: { contains: filter.search, mode: 'insensitive' } }, { sku: { contains: filter.search, mode: 'insensitive' } }, { category: { contains: filter.search, mode: 'insensitive' } }] } : {}),
   };
 
   return Promise.all([

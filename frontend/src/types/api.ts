@@ -31,7 +31,7 @@ export interface ProductListResponse {
 }
 
 export interface LoginResponse {
-  data: { accessToken: string; user: User };
+  data: { accessToken: string; refreshToken: string; user: User };
 }
 
 export interface QuotePreviewResponse {
